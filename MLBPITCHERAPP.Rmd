@@ -36,12 +36,6 @@ library(data.table)
 ```
 
 ```{r}
-rsconnect::setAccountInfo(name='oifyut-ben-church',
-			  token='2F05BEA6E17ED70E0817CD7C8BB96C9B',
-			  secret='YLfP06c20xAKwOEn2TUibCpXZQ63542uKtkP5NqP')
-```
-
-```{r}
 
 get_pitcher_data <- function(start_date, end_date, max_retries = 5) {
   url <- paste0(
@@ -112,83 +106,6 @@ all_pitchers_data <- rbindlist(all_data_list)
 head(all_pitchers_data)
 ```
 
-
-```{r}
-get_pitcher_data <- function(start_date, end_date, max_retries = 5) {
-  url <- paste0(
-    "https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfPT=&hfAB=&hfBBT=&hfPR=&hfZ=&stadium=&hfBBL=&hfNewZones=&hfGT=R%7CPO%7CS%7C&hfC=&hfSea=",
-    format(as.Date(start_date), "%Y"),
-    "%7C&hfSit=&hfOuts=&opponent=&pitcher_throws=&batter_stands=&hfSA=&player_type=pitcher&hfInfield=&team=&position=&hfOutfield=&hfRO=&home_road=&game_date_gt=",
-    start_date, 
-    "&game_date_lt=",
-    end_date,
-    "&hfFlag=&hfPull=&metric_1=&hfInn=&min_pitches=0&min_results=0&group_by=name&sort_col=pitches&player_event_sort=h_launch_speed&sort_order=desc&min_abs=0&type=details"
-  )
-  
-  retries <- 0
-  success <- FALSE
-  data <- NULL
-  
-  while (retries < max_retries && !success) {
-    tmpFile <- tempfile(fileext = ".csv")
-    tryCatch({
-      download.file(url, tmpFile, method = "auto", quiet = TRUE, mode = "wb")
-      data <- read.csv(tmpFile)
-      unlink(tmpFile)
-      success <- TRUE
-    }, error = function(e) {
-      retries <- retries + 1
-      cat("Attempt", retries, "failed. Retrying in", 2^retries, "seconds...\n")
-      Sys.sleep(2^retries)
-    })
-  }
-  
-  if (!success) {
-    stop("Failed to download data after", max_retries, "attempts")
-  }
-  
-  return(data)
-}
-
-# Define the start date and the current date
-start_date <- as.Date("2024-03-28")
-current_date <- Sys.Date()
-
-# Create a sequence of start and end dates for every 6-day period
-start_dates <- seq(start_date, current_date, by = "5 days")
-end_dates <- start_dates + 4
-
-# Adjust the last end_date to be the current_date if it exceeds the current_date
-end_dates[end_dates > current_date] <- current_date
-
-# Initialize an empty data frame to store the combined data
-all_pitchers_data <- data.frame()
-
-# Loop through each date range and retrieve the data
-for (i in 1:length(start_dates)) {
-  start_date <- as.character(start_dates[i])
-  end_date <- as.character(end_dates[i])
-  
-  cat("Retrieving data from", start_date, "to", end_date, "\n")
-  data <- get_pitcher_data(start_date, end_date)
-  
-  all_pitchers_data <- bind_rows(all_pitchers_data, data)
-}
-
-# Print the first few rows to verify
-head(all_pitchers_data)
-```
-```{r}
-dup_names <- names(all_pitchers_data)[duplicated(names(all_pitchers_data))]
-
-# Add unique suffixes to duplicated column names
-new_names <- make.unique(names(all_pitchers_data), sep = "_")
-
-# Rename the data frame columns
-names(all_pitchers_data) <- new_names
-```
-
-
 ```{r}
 # Summarize to get highest velocity per pitch name
 highest_exit_velo <- all_pitchers_data %>%
@@ -208,7 +125,6 @@ highest_exit_velo <- highest_exit_velo %>%
 highest_exit_velo
 
 ```
-
 
 ```{r}
 library(janitor)
@@ -254,8 +170,6 @@ Height <- (top - bottom) / 3
 colors <- colorRampPalette(c("white", "royalblue", "white", "red"))(10)
 colors
 ```
-
-
 
 ```{r}
 ui <- fluidPage(
