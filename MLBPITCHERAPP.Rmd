@@ -1,0 +1,584 @@
+---
+title: "MLBPITCHERAPP"
+author: "Ben Church"
+date: "2024-07-02"
+output: html_document
+---
+
+# MLB PITCHER APP
+
+```{r}
+rm(list=ls())
+```
+
+```{r}
+install.packages("baseballr")
+install.packages("data.table")
+install.packages("gridExtra")
+install.packages("rsconnect")
+```
+
+```{r}
+library(baseballr)
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(kableExtra)
+library(data.table)
+library(httr)
+library(gridExtra)
+library(rsconnect)
+library(shiny)
+library(lubridate)
+library(future.apply)
+library(future)
+library(data.table)
+```
+
+```{r}
+rsconnect::setAccountInfo(name='oifyut-ben-church',
+			  token='2F05BEA6E17ED70E0817CD7C8BB96C9B',
+			  secret='YLfP06c20xAKwOEn2TUibCpXZQ63542uKtkP5NqP')
+```
+
+```{r}
+
+get_pitcher_data <- function(start_date, end_date, max_retries = 5) {
+  url <- paste0(
+    "https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfPT=&hfAB=&hfBBT=&hfPR=&hfZ=&stadium=&hfBBL=&hfNewZones=&hfGT=R%7CPO%7CS%7C&hfC=&hfSea=",
+    format(as.Date(start_date), "%Y"),
+    "%7C&hfSit=&hfOuts=&opponent=&pitcher_throws=&batter_stands=&hfSA=&player_type=pitcher&hfInfield=&team=&position=&hfOutfield=&hfRO=&home_road=&game_date_gt=",
+    start_date, 
+    "&game_date_lt=",
+    end_date,
+    "&hfFlag=&hfPull=&metric_1=&hfInn=&min_pitches=0&min_results=0&group_by=name&sort_col=pitches&player_event_sort=h_launch_speed&sort_order=desc&min_abs=0&type=details"
+  )
+  
+  retries <- 0
+  success <- FALSE
+  data <- NULL
+  
+  while (retries < max_retries && !success) {
+    tmpFile <- tempfile(fileext = ".csv")
+    tryCatch({
+      download.file(url, tmpFile, method = "auto", quiet = TRUE, mode = "wb")
+      data <- fread(tmpFile)
+      unlink(tmpFile)
+      success <- TRUE
+    }, error = function(e) {
+      retries <- retries + 1
+      cat("Attempt", retries, "failed. Retrying in", 2^retries, "seconds...\n")
+      Sys.sleep(2^retries)
+    })
+  }
+  
+  if (!success) {
+    stop("Failed to download data after", max_retries, "attempts")
+  }
+  
+  return(data)
+}
+
+# Define the start date and the current date
+start_date <- as.Date("2024-03-28")
+current_date <- Sys.Date()
+
+# Create a sequence of start and end dates for every 6-day period
+start_dates <- seq(start_date, current_date, by = "5 days")
+end_dates <- start_dates + 4
+
+# Adjust the last end_date to be the current_date if it exceeds the current_date
+end_dates[end_dates > current_date] <- current_date
+
+# Initialize a future plan for parallel processing
+plan(multisession)
+
+# Function to retrieve data for a given date range
+retrieve_data_for_range <- function(start_date, end_date) {
+  cat("Retrieving data from", start_date, "to", end_date, "\n")
+  data <- get_pitcher_data(start_date, end_date)
+  return(data)
+}
+
+# Use future_lapply for parallel processing
+all_data_list <- future_lapply(1:length(start_dates), function(i) {
+  retrieve_data_for_range(as.character(start_dates[i]), as.character(end_dates[i]))
+})
+
+# Combine all data frames into one
+all_pitchers_data <- rbindlist(all_data_list)
+
+# Print the first few rows to verify
+head(all_pitchers_data)
+```
+
+
+```{r}
+get_pitcher_data <- function(start_date, end_date, max_retries = 5) {
+  url <- paste0(
+    "https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfPT=&hfAB=&hfBBT=&hfPR=&hfZ=&stadium=&hfBBL=&hfNewZones=&hfGT=R%7CPO%7CS%7C&hfC=&hfSea=",
+    format(as.Date(start_date), "%Y"),
+    "%7C&hfSit=&hfOuts=&opponent=&pitcher_throws=&batter_stands=&hfSA=&player_type=pitcher&hfInfield=&team=&position=&hfOutfield=&hfRO=&home_road=&game_date_gt=",
+    start_date, 
+    "&game_date_lt=",
+    end_date,
+    "&hfFlag=&hfPull=&metric_1=&hfInn=&min_pitches=0&min_results=0&group_by=name&sort_col=pitches&player_event_sort=h_launch_speed&sort_order=desc&min_abs=0&type=details"
+  )
+  
+  retries <- 0
+  success <- FALSE
+  data <- NULL
+  
+  while (retries < max_retries && !success) {
+    tmpFile <- tempfile(fileext = ".csv")
+    tryCatch({
+      download.file(url, tmpFile, method = "auto", quiet = TRUE, mode = "wb")
+      data <- read.csv(tmpFile)
+      unlink(tmpFile)
+      success <- TRUE
+    }, error = function(e) {
+      retries <- retries + 1
+      cat("Attempt", retries, "failed. Retrying in", 2^retries, "seconds...\n")
+      Sys.sleep(2^retries)
+    })
+  }
+  
+  if (!success) {
+    stop("Failed to download data after", max_retries, "attempts")
+  }
+  
+  return(data)
+}
+
+# Define the start date and the current date
+start_date <- as.Date("2024-03-28")
+current_date <- Sys.Date()
+
+# Create a sequence of start and end dates for every 6-day period
+start_dates <- seq(start_date, current_date, by = "5 days")
+end_dates <- start_dates + 4
+
+# Adjust the last end_date to be the current_date if it exceeds the current_date
+end_dates[end_dates > current_date] <- current_date
+
+# Initialize an empty data frame to store the combined data
+all_pitchers_data <- data.frame()
+
+# Loop through each date range and retrieve the data
+for (i in 1:length(start_dates)) {
+  start_date <- as.character(start_dates[i])
+  end_date <- as.character(end_dates[i])
+  
+  cat("Retrieving data from", start_date, "to", end_date, "\n")
+  data <- get_pitcher_data(start_date, end_date)
+  
+  all_pitchers_data <- bind_rows(all_pitchers_data, data)
+}
+
+# Print the first few rows to verify
+head(all_pitchers_data)
+```
+```{r}
+dup_names <- names(all_pitchers_data)[duplicated(names(all_pitchers_data))]
+
+# Add unique suffixes to duplicated column names
+new_names <- make.unique(names(all_pitchers_data), sep = "_")
+
+# Rename the data frame columns
+names(all_pitchers_data) <- new_names
+```
+
+
+```{r}
+# Summarize to get highest velocity per pitch name
+highest_exit_velo <- all_pitchers_data %>%
+  group_by(pitch_name) %>%
+  summarise(highest_velo = max(release_speed, na.rm = TRUE))
+
+# Join with original data to get player name and pitch name
+highest_exit_velo <- highest_exit_velo %>%
+  left_join(all_pitchers_data, by = c("pitch_name" = "pitch_name", "highest_velo" = "release_speed")) %>%
+  select(player_name, pitch_name, highest_velo)
+
+rows_to_remove <- c(1, 10, 11, 12, 15, 18)
+highest_exit_velo <- highest_exit_velo %>%
+  slice(-rows_to_remove)
+
+# View the resulting data frame
+highest_exit_velo
+
+```
+
+
+```{r}
+library(janitor)
+
+# Clean column names to ensure they are unique
+all_pitchers_data_clean <- all_pitchers_data %>% clean_names()
+
+
+all_pitchers_data2 <- all_pitchers_data_clean %>% 
+  # Only keep rows with pitch movement readings
+  # and during the regular season
+  dplyr::filter(!is.na(pfx_x), !is.na(pfx_z),
+                game_type == "R") %>%
+  dplyr::mutate(pfx_x_in = -12*pfx_x,
+                pfx_z_in = 12*pfx_z)
+
+
+pitch_colors <- c("4-Seam Fastball" = "red",
+                  "2-Seam Fastball" = "black",
+                  "Sinker" = "cyan",
+                  "Cutter" = "violet",
+                  "Fastball" = "blue",
+                  "Curveball" = "green",
+                  "Knuckle Curve" = "pink",
+                  "Slider" = "orange",
+                  "Changeup" = "gray50",
+                  "Split-Finger" = "yellow",
+                  "Knuckleball" = "gold",
+                  "Sweeper" = "lightblue")
+```
+
+```{r}
+left <- -8.5/12
+right <- 8.5/12
+bottom <- 18.29/12
+top <- 44.08/12
+
+Width <- (right - left) / 3
+Height <- (top - bottom) / 3
+```
+
+```{r}
+colors <- colorRampPalette(c("white", "royalblue", "white", "red"))(10)
+colors
+```
+
+
+
+```{r}
+ui <- fluidPage(
+  titlePanel("Pitcher Analysis"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("pitcher", "Select Pitcher:", choices = NULL),
+      selectInput("pitch_type", "Select Pitch Type:", choices = NULL, selected = "All"),
+            selectInput("stand", "Select Batter Side:", choices = c("All", "L", "R"), selected = "All"),
+      dateRangeInput("date_range", "Select Date Range:", start = min(all_pitchers_data2$game_date), end = max(all_pitchers_data2$game_date))
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Heat Map", plotOutput("chart1", height = "600px", width = "600px")),
+        tabPanel("Hit Chart", plotOutput("chart2", height = "475px", width = "700px")),
+        tabPanel("Pitch Breaks", plotOutput("chart3")),
+         tabPanel("Release Points", plotOutput("chart4")),
+        tabPanel("Pitch Velos", plotOutput("chart5", height = "500px", width = "800px")),
+        tabPanel("Pitch Usage", plotOutput("chart6", height = "600px", width = "900px")),
+        tabPanel("Summary Statistics", tableOutput("summary_table")),
+        tabPanel("Avg Velo by Inning", plotOutput("chart7"))
+      )
+    )
+  )
+)
+```
+
+```{r}
+server <- function(input, output, session) {
+  # Ensure the unique list of pitchers is updated when the app is launched
+  observe({
+    updateSelectInput(session, "pitcher", choices = unique(all_pitchers_data2$player_name))
+  })
+  
+  # Update pitch types based on selected pitcher
+  observeEvent(input$pitcher, {
+    filtered_pitcher_data <- all_pitchers_data2 %>% filter(player_name == input$pitcher)
+    pitch_types <- unique(filtered_pitcher_data$pitch_name)
+    updateSelectInput(session, "pitch_type", choices = c("All", pitch_types))
+  })
+  
+  # Reactive data filtered by the selected pitcher and pitch type
+  filtered_data <- reactive({
+    req(input$pitcher)  # Ensure input$pitcher is available
+    data <- all_pitchers_data2 %>% filter(player_name == input$pitcher,
+             game_date >= input$date_range[1],
+             game_date <= input$date_range[2])
+    
+    if (input$pitch_type != "All") {
+      data <- data %>% filter(pitch_name == input$pitch_type)
+    }
+    
+         if (input$stand != "All") {
+      data <- data %>% filter(stand == input$stand)
+     }
+    
+    data
+  })
+  
+   # Compute summary statistics
+ summary_stats <- reactive({
+  req(input$pitcher)  # Ensure input$pitcher is available
+  filtered_data <- all_pitchers_data2 %>%
+    filter(player_name == input$pitcher)
+  
+  filtered_data %>%
+    group_by(pitch_name) %>%
+    summarise(
+        Velo = round(mean(release_speed, na.rm = TRUE), digits = 1),
+        MaxVelo = round(max(release_speed, na.rm = TRUE), digits = 1),
+        Spin = round(mean(release_spin_rate, na.rm = TRUE), digits = 1),
+        MaxSpin = round(max(release_spin_rate, na.rm = TRUE), digits = 1),
+        HorzBreakAvg = round(mean(pfx_x_in, na.rm = TRUE), digits = 1),
+                VertBreakAvg = round(mean(pfx_z_in, na.rm = TRUE), digits = 1),
+        woba = round(mean(woba_value, na.rm = TRUE), digits = 3)
+      )
+})
+  
+  freq <- reactive({
+    data <- filtered_data()
+    data %>%
+      group_by(pitch_name) %>%
+      summarise(count = n()) %>%
+      mutate(usage_percent = count / sum(count) * 100)
+  })
+  
+  freq_left <- reactive({
+    data <- filtered_data() %>% filter(stand %in% c("L"))  # Adjust the filter condition as necessary
+    data %>%
+      group_by(pitch_name) %>%
+      summarise(count = n()) %>%
+      mutate(usage_percent = count / sum(count) * 100)
+  })
+  
+  freq_right <- reactive({
+    data <- filtered_data() %>% filter(stand %in% c("R"))  # Adjust the filter condition as necessary
+    data %>%
+      group_by(pitch_name) %>%
+      summarise(count = n()) %>%
+      mutate(usage_percent = count / sum(count) * 100)
+  })
+  
+  line_chart <- reactive({
+    req(filtered_data())
+    filtered_data() %>%
+      group_by(pitch_name, inning) %>%
+      summarise(avg_velo = mean(release_speed, na.rm = TRUE))
+  })
+
+  # Plot 1: Heat Map
+  output$chart1 <- renderPlot({
+    ggplot(filtered_data(), mapping = aes(x = plate_x, y = plate_z)) +
+      stat_density2d_filled(h = .65, contour_var = "ndensity", n = 100) + 
+      scale_fill_manual(values = colors, aesthetics = "fill", "color") +
+      geom_segment(aes(x = left, y = bottom, xend = right, yend = bottom)) + 
+      geom_segment(aes(x = left, y = top, xend = right, yend = top)) + 
+      geom_segment(aes(x = left, y = bottom, xend = left, yend = top)) + 
+      geom_segment(aes(x = right, y = bottom, xend = right, yend = top)) + 
+      geom_segment(aes(x = left, y = bottom + Height, xend = right, yend = bottom + Height)) + 
+      geom_segment(aes(x = left, y = top - Height, xend = right, yend = top - Height)) +
+      geom_segment(aes(x = left + Width, y = bottom, xend = left + Width, yend = top)) +
+      geom_segment(aes(x = right - Width, y = bottom, xend = right - Width, yend = top)) +
+      geom_segment(aes(x = left, y = 0, xend = right, yend = 0)) +
+      geom_segment(aes(x = left, y = 0, xend = left, yend = 4.25 / 12)) +
+      geom_segment(aes(x = left, y = 4.25 / 12, xend = 0, yend = 8.5 / 12)) +
+      geom_segment(aes(x = right, y = 4.25 / 12, xend = right, yend = 0)) +
+      geom_segment(aes(x = 0, y = 8.5 / 12, xend = right, yend = 4.25 / 12)) +
+      xlim(-3, 3) + ylim(0, 5) + ggtitle("") +
+      theme(legend.position = "none",
+            plot.title = element_text(color = 'black', size = 25, face = "bold"),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+            panel.background = element_blank(),
+            panel.border = element_rect(color = 'black', size = 1.5, fill = NA),
+          strip.text = element_text(size = 15, color = 'black')) +
+      facet_wrap(~pitch_name, ncol = 2)
+  })
+  
+output$chart2 <- renderPlot({
+  # Filtered data
+  data <- filtered_data()
+  
+  # Mutate events_clean
+  data <- data %>%
+    mutate(events_clean = case_when(
+      events %in% c("single", "double", "triple", "home_run") ~ "Hit",
+      events %in% c("force_out", "grounded_into_double_play", "fielders_choice_out", "sac_fly_double_play", "other_out", "field_out", "sac_fly", "fielders_choice", "double_play", "triple_play") ~ "Out",
+      events %in% c("sac_bunt", "pickoff_3b", "stolen_base_2b", 
+                    "pickoff_caught_stealing_home", "pickoff_1b", "catcher_interf", "caught_stealing_home", "caught_stealing_2b", "caught_stealing_3b", "pickoff_caught_stealing_3b") ~ "Other",
+      events %in% c("field_error") ~ "Error",
+      events %in% c("walk", "hit_by_pitch") ~ "Walk",
+      events %in% c("strikeout_double_play", "strikeout") ~ "Strikeout",
+      events %in% c("") ~ NA,
+      TRUE ~ events  # Keep any events not matched in the above conditions as-is
+    ),
+    description_clean = case_when(
+      description %in% c("missed_bunt", "foul_tip", "called_strike", "foul_bunt", "foul", "bunt_foul_tip") ~ "Strike",
+      description %in% c("swinging_strike_blocked", "swinging_strike") ~ "Swinging Strike",
+      description %in% c("ball", "hit_by_pitch", "pitchout", "blocked_ball") ~ "Ball",
+      description %in% c("hit_into_play") ~ "In Play",
+      TRUE ~ as.character(description)  # Keep any descriptions not matched in the above conditions as-is
+    ))
+  
+  # Filter out NA values in events_clean
+  data <- data[!is.na(data$events_clean), ]
+  
+  # Plot with filtered data
+  ggplot(data, aes(x = plate_x, y = plate_z, color = events_clean, shape = description_clean)) + 
+    geom_point(alpha = 1, size = 3) +
+    geom_segment(aes(x = left, y = bottom, xend = right, yend = bottom), color = "black") + 
+    geom_segment(aes(x = left, y = top, xend = right, yend = top), color = "black") + 
+    geom_segment(aes(x = left, y = bottom, xend = left, yend = top), color = "black") + 
+    geom_segment(aes(x = right, y = bottom, xend = right, yend = top), color = "black") + 
+    geom_segment(aes(x = left, y = bottom + Height, xend = right, yend = bottom + Height), color = "black") + 
+    geom_segment(aes(x = left, y = top - Height, xend = right, yend = top - Height), color = "black") +
+    geom_segment(aes(x = left + Width, y = bottom, xend = left + Width, yend = top), color = "black") +
+    geom_segment(aes(x = right - Width, y = bottom, xend = right - Width, yend = top), color = "black") +
+    geom_segment(aes(x = left, y = 0, xend = right, yend = 0), color = "black") +
+    geom_segment(aes(x = left, y = 0, xend = left, yend = 4.25 / 12), color = "black") +
+    geom_segment(aes(x = left, y = 4.25 / 12, xend = 0, yend = 8.5 / 12), color = "black") +
+    geom_segment(aes(x = right, y = 4.25 / 12, xend = right, yend = 0), color = "black") +
+    geom_segment(aes(x = 0, y = 8.5 / 12, xend = right, yend = 4.25 / 12), color = "black") +
+    xlim(-3, 3) + ylim(0, 5) + 
+    ggtitle("Hit Chart") +
+    scale_color_manual(values = c("Hit" = "green", "Out" = "red", "Other" = "blue", "Error" = "purple")) +  # Adjust colors as needed
+    theme(legend.position = "right",
+          legend.text = element_text(size = 15),
+          plot.title = element_text(color = 'black', size = 15, face = "bold"),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          panel.border = element_rect(color = 'black', size = 1.5, fill = NA))
+})
+  
+  # Plot 3: Pitch Breaks
+  output$chart3 <- renderPlot({
+    ggplot(filtered_data(), aes(x = pfx_x_in, y = pfx_z_in, color = pitch_name)) +
+      geom_vline(xintercept = 0) +
+      geom_hline(yintercept = 0) +
+      geom_point(size = 1.5, alpha = 0.65) +
+      geom_point(size = 1.5, alpha = 0.50) +
+      scale_x_continuous(limits = c(-25, 25), breaks = seq(-20, 20, 5), labels = scales::number_format(suffix = "\"")) +
+      scale_y_continuous(limits = c(-25, 25), breaks = seq(-20, 20, 5), labels = scales::number_format(suffix = "\"")) +
+      coord_equal() +
+      theme(legend.position = "bottom") +
+      labs(title = "Pitch Breaks",
+           caption = "Data: Baseball Savant via baseballr", 
+           x = "Horizontal Break",
+           y = "Induced Vertical Break")
+  })
+  
+  # Plot 4: Pitch Breaks
+  output$chart4 <- renderPlot({
+   ggplot(filtered_data(), aes(x = release_pos_x, y = release_pos_z, color = pitch_name)) +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 1.75, alpha = 0.25) +
+  scale_color_manual(values = pitch_colors) +
+  scale_x_continuous(limits = c(-10,10),
+                              breaks = seq(-10,10, 5),
+                              labels = scales::number_format(suffix = "\"")) +
+  scale_y_continuous(limits = c(-10,10),
+                              breaks = seq(-10,10, 5),
+                              labels = scales::number_format(suffix = "\"")) +
+  coord_equal() +
+  labs(
+                x = "Horizontal Release Point",
+                y = "Vertical Release Point",
+                color = "Pitch")
+  })
+  
+  # Plot 5: Pitch Velos
+  output$chart5 <- renderPlot({
+     ggplot(filtered_data(), aes(x = release_speed, y = pitch_name, color = pitch_name)) +
+  geom_violin(scale = "width") +
+  labs(x = "Velocity",
+       y = NULL) +
+  theme_minimal() +
+ guides(fill = guide_legend(title = "Pitch"))
+  })
+  
+   # Plot 6: Pitch Usage
+  output$chart6 <- renderPlot({
+    vs_all <- ggplot(freq(), aes(x = "", y = usage_percent, fill = pitch_name)) +
+      geom_bar(stat = "identity", width = 1) +  
+      coord_polar("y", start = 0) +  
+      theme_void() +  
+      scale_fill_manual(values = pitch_colors) +  
+      labs(title = "vs All") +
+      theme(legend.position = "bottom",
+          legend.text = element_text(size = 16)) +
+      guides(fill = guide_legend(title = "")) + 
+      geom_text(aes(label = paste0(round(usage_percent, 1), "%")), 
+                position = position_stack(vjust = 0.5), 
+                size = 4, color = "black")
+    
+    vs_left <- ggplot(freq_left(), aes(x = "", y = usage_percent, fill = pitch_name)) +
+      geom_bar(stat = "identity", width = 1) +  
+      coord_polar("y", start = 0) +  
+      theme_void() +  
+     scale_fill_manual(values = pitch_colors) +  
+      labs(title = "vs LHH") +
+      theme(legend.position = "none") +
+      geom_text(aes(label = paste0(round(usage_percent, 1), "%")), 
+                position = position_stack(vjust = 0.5), 
+                size = 4, color = "black")
+    
+    vs_right <- ggplot(freq_right(), aes(x = "", y = usage_percent, fill = pitch_name)) +
+      geom_bar(stat = "identity", width = 1) +  
+      coord_polar("y", start = 0) +  
+      theme_void() +  
+      scale_fill_manual(values = pitch_colors) +  
+           labs(title = "vs RHH") +
+      theme(legend.position = "none") +
+      geom_text(aes(label = paste0(round(usage_percent, 1), "%")), 
+                position = position_stack(vjust = 0.5), 
+                size = 4, color = "black")
+    
+    grid.arrange(vs_left, vs_all, vs_right, ncol = 3)
+  })
+  
+ output$summary_table <- renderTable({
+  summary_stats()
+})
+ 
+  # Plot 7: Avg Velo by Inning
+output$chart7 <- renderPlot({
+  ggplot(data = line_chart(), aes(x = inning, y = avg_velo, color = pitch_name)) +
+    geom_line(stat = "summary", fun = "mean") +
+    labs(title = "Average Velocity By Inning",
+         x = "Inning",
+         y = "Average Velocity",
+         color = "Pitch Type") +
+    theme_minimal() +
+    scale_x_continuous(breaks = unique(line_chart()$inning))
+})
+  
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+```
+
+
+```{r}
+library(rsconnect)
+deployApp()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
